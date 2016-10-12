@@ -23,7 +23,7 @@
 
 from io import BytesIO
 from itertools import chain
-import os
+import os, tempfile
 
 from dulwich.objects import (
     hex_to_sha,
@@ -32,11 +32,12 @@ from dulwich.repo import (
     check_ref_format,
     Repo,
     )
-
+from dulwich.tests.utils import (
+    rmtree_ro,
+)
 from dulwich.tests.compat.utils import (
     run_git_or_fail,
     CompatTestCase,
-    rmtree_ro,
     git_version
 )
 
@@ -67,6 +68,13 @@ class ObjectStoreTestCase(CompatTestCase):
 
     def _parse_objects(self, output):
         return set(s.rstrip(b'\n').split(b' ')[0] for s in BytesIO(output))
+
+    def _parse_worktree_list(self, output):
+        worktrees = []
+        for line in BytesIO(output):
+            fields = line.rstrip(b'\n').split()
+            worktrees.append(tuple(f.decode() for f in fields))
+        return worktrees
 
     def test_bare(self):
         self.assertTrue(self._repo.bare)
@@ -138,10 +146,15 @@ class WorkingTreeTestCase(ObjectStoreTestCase):
         self._worktree_repo = Repo(self._worktree_path)
         self._mainworktree_repo = self._repo
         self._repo = self._worktree_repo
+        self._other_worktree = Repo.init_new_working_directory(tempfile.mkdtemp(),
+                                                               self._mainworktree_repo.path)
 
     def tearDown(self):
         self._worktree_repo.close()
         rmtree_ro(self._worktree_path)
+        other_path = self._other_worktree.path
+        self._other_worktree.close();
+        rmtree_ro(other_path)
         self._repo = self._mainworktree_repo
         super(WorkingTreeTestCase, self).tearDown()
 
@@ -155,3 +168,20 @@ class WorkingTreeTestCase(ObjectStoreTestCase):
     def test_bare(self):
         self.assertFalse(self._repo.bare)
         self.assertTrue(os.path.isfile(os.path.join(self._repo.path, '.git')))
+
+    def test_worktrees(self):
+        output = run_git_or_fail(['worktree', 'list'], cwd=self._repo.path)
+        worktrees = self._parse_worktree_list(output)
+        self.assertEqual(worktrees[0][1], '(bare)')
+        self.assertEqual(worktrees[0][0], self._mainworktree_repo.path)
+        
+        output = run_git_or_fail(['worktree', 'list'], cwd=self._other_worktree.path)
+        worktrees = self._parse_worktree_list(output)
+        self.assertEqual(worktrees[0][1], '(bare)')
+        self.assertEqual(worktrees[0][0], self._mainworktree_repo.path)
+        
+        output = run_git_or_fail(['worktree', 'list'], cwd=self._mainworktree_repo.path)
+        worktrees = self._parse_worktree_list(output)
+        self.assertEqual(len(worktrees), 3)
+        self.assertEqual(worktrees[0][1], '(bare)')
+        self.assertEqual(worktrees[0][0], self._mainworktree_repo.path)

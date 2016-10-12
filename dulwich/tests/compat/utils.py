@@ -21,19 +21,20 @@
 """Utilities for interacting with cgit."""
 
 import errno
-import functools
 import os
 import shutil
 import socket
 import stat
 import subprocess
-import sys
 import tempfile
 import time
 
 from dulwich.repo import Repo
 from dulwich.protocol import TCP_GIT_PORT
 
+from dulwich.tests.utils import (
+    rmtree_ro,
+)
 from dulwich.tests import (
     SkipTest,
     TestCase,
@@ -255,11 +256,10 @@ class CompatTestCase(TestCase):
                         cwd=repo_dir)
         return temp_dir
 
-if sys.platform == 'win32':
-    def remove_ro(action, name, exc):
-        os.chmod(name, stat.S_IWRITE)
-        os.remove(name)
+    def debug_repo(self, s, repo):
+        print('{}: {}'.format(s, repo))
+        print('controldir: {}'.format(repo.controldir()))
+        print(' commondir: {}'.format(repo.commondir()))
+        for r in repo.get_refs().keys():
+            print('{}: {}'.format(r, repo.refs[r]))
 
-    rmtree_ro = functools.partial(shutil.rmtree, onerror=remove_ro)
-else:
-    rmtree_ro = shutil.rmtree
